@@ -654,15 +654,15 @@ def run_training(task_id, model, model_type, expected_repo_name, hours_to_comple
                 print(f"Loss count: {loss_count}", flush=True)
                 print(f"Loss loop: {loss_loop}", flush=True)
 
-                # if loss_count >= 4:
-                #     docker_maxi = False
-                #     docker_failed = False
+                if loss_count >= 3:
+                    docker_maxi = False
+                    docker_failed = False
 
                 if docker_exit:
                     docker_maxi = False
                     docker_failed = False
 
-                if docker_lrate > 0.01:
+                if docker_lrate > 0.001:
                     docker_maxi = False
                     docker_failed = False
 

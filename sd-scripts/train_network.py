@@ -474,6 +474,7 @@ class NetworkTrainer:
         set_seed(args.seed)
 
         current_loss = 1.0
+        ckpt_loss = 1.0
 
         tokenize_strategy = self.get_tokenize_strategy(args)
         strategy_base.TokenizeStrategy.set_strategy(tokenize_strategy)
@@ -487,7 +488,7 @@ class NetworkTrainer:
         if args.dataset_class is None:
             blueprint_generator = BlueprintGenerator(ConfigSanitizer(True, True, args.masked_loss, True))
             if use_user_config:
-                logger.info(f"Loading dataset config from {args.dataset_config}")
+                logger.info(f"\nLoading dataset config from {args.dataset_config}")
                 user_config = config_util.load_user_config(args.dataset_config)
                 ignored = ["train_data_dir", "reg_data_dir", "in_json"]
                 if any(getattr(args, attr) is not None for attr in ignored):
@@ -498,7 +499,7 @@ class NetworkTrainer:
                     )
             else:
                 if use_dreambooth_method:
-                    logger.info("Using DreamBooth method.")
+                    logger.info("\nUsing DreamBooth method.")
                     user_config = {
                         "datasets": [
                             {
@@ -509,7 +510,7 @@ class NetworkTrainer:
                         ]
                     }
                 else:
-                    logger.info("Training with captions.")
+                    logger.info("\nTraining with captions.")
                     user_config = {
                         "datasets": [
                             {
@@ -561,7 +562,7 @@ class NetworkTrainer:
         self.assert_extra_args(args, train_dataset_group, val_dataset_group)  # may change some args
 
         # acceleratorを準備する
-        logger.info("preparing accelerator")
+        logger.info("\npreparing accelerator")
         accelerator = train_util.prepare_accelerator(args)
         is_main_process = accelerator.is_main_process
 
@@ -803,7 +804,7 @@ class NetworkTrainer:
 
             # logger.info(f"set U-Net weight dtype to {unet_weight_dtype}, device to {accelerator.device}")
             # unet.to(accelerator.device, dtype=unet_weight_dtype)  # this seems to be safer than above
-            logger.info(f"set U-Net weight dtype to {unet_weight_dtype}")
+            logger.info(f"\nset U-Net weight dtype to {unet_weight_dtype}")
             unet.to(dtype=unet_weight_dtype)  # do not move to device because unet is not prepared by accelerator
 
         unet.requires_grad_(False)
@@ -901,7 +902,7 @@ class NetworkTrainer:
             # save current ecpoch and step
             train_state_file = os.path.join(output_dir, "train_state.json")
             # +1 is needed because the state is saved before current_step is set from global_step
-            logger.info(f"save train state to {train_state_file} at epoch {current_epoch.value} step {current_step.value+1}")
+            logger.info(f"\nsave train state to {train_state_file} at epoch {current_epoch.value} step {current_step.value+1}")
             with open(train_state_file, "w", encoding="utf-8") as f:
                 json.dump({"current_epoch": current_epoch.value, "current_step": current_step.value + 1}, f)
 
@@ -924,7 +925,7 @@ class NetworkTrainer:
                 with open(train_state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 steps_from_state = data["current_step"]
-                logger.info(f"load train state from {train_state_file}: {data}")
+                logger.info(f"\nload train state from {train_state_file}: {data}")
 
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
@@ -1213,6 +1214,7 @@ class NetworkTrainer:
         if initial_step > 0:
             if args.skip_until_initial_step:
                 # if skip_until_initial_step is specified, load data and discard it to ensure the same data is used
+                logger.info("\n")
                 if not args.resume:
                     logger.info(
                         f"initial_step is specified but not resuming. lr scheduler will be started from the beginning / initial_stepが指定されていますがresumeしていないため、lr schedulerは最初から始まります"
@@ -1249,10 +1251,11 @@ class NetworkTrainer:
 
         # function for saving/removing
         def save_model(ckpt_name, unwrapped_nw, steps, epoch_no, force_sync_upload=False):
+            logger.info(f"\nsave_model: {ckpt_name}")
             os.makedirs(args.output_dir, exist_ok=True)
             ckpt_file = os.path.join(args.output_dir, ckpt_name)
 
-            accelerator.print(f"\nsaving checkpoint train: {ckpt_file}")
+            logger.info(f"\nsaving checkpoint train: {ckpt_file}")
             metadata["ss_training_finished_at"] = str(time.time())
             metadata["ss_steps"] = str(steps)
             metadata["ss_epoch"] = str(epoch_no)
@@ -1262,8 +1265,8 @@ class NetworkTrainer:
             metadata_to_save.update(sai_metadata)
 
             unwrapped_nw.save_weights(ckpt_file, save_dtype, metadata_to_save)
-            if args.huggingface_repo_id is not None:
-                huggingface_util.upload(args, ckpt_file, "/" + ckpt_name, force_sync_upload=force_sync_upload)
+            # if args.huggingface_repo_id is not None:
+            #     huggingface_util.upload(args, ckpt_file, "/" + ckpt_name, force_sync_upload=force_sync_upload)
 
         def remove_model(old_ckpt_name):
             old_ckpt_file = os.path.join(args.output_dir, old_ckpt_name)
@@ -1274,7 +1277,7 @@ class NetworkTrainer:
         # if text_encoder is not needed for training, delete it to save memory.
         # TODO this can be automated after SDXL sample prompt cache is implemented
         if self.is_text_encoder_not_needed_for_training(args):
-            logger.info("text_encoder is not needed for training. deleting to save memory.")
+            logger.info("\ntext_encoder is not needed for training. deleting to save memory.")
             for t_enc in text_encoders:
                 del t_enc
             text_encoders = []
@@ -1321,6 +1324,8 @@ class NetworkTrainer:
         validation_total_steps = validation_steps * len(validation_timesteps)
         original_args_min_timestep = args.min_timestep
         original_args_max_timestep = args.max_timestep
+
+        logger.info(f"\nfinal args: {args}")
 
         def switch_rng_state(seed: int) -> tuple[torch.ByteTensor, Optional[torch.ByteTensor], tuple]:
             cpu_rng_state = torch.get_rng_state()
@@ -1414,6 +1419,14 @@ class NetworkTrainer:
                 else:
                     keys_scaled, mean_norm, maximum_norm = None, None, None
 
+                current_loss = loss.detach().item()
+                loss_recorder.add(epoch=epoch, step=step, loss=current_loss)
+                avr_loss: float = loss_recorder.moving_average
+                logs = {"avr_loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
+                progress_bar.set_postfix(**logs)
+
+                current_loss = avr_loss
+
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if accelerator.sync_gradients:
                     progress_bar.update(1)
@@ -1425,12 +1438,24 @@ class NetworkTrainer:
                     )
 
                     # 指定ステップごとにモデルを保存
-                    if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0:
+                    if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0 and ckpt_loss >= current_loss:
+                        logger.info(f"\ncurrent_loss: {current_loss}")
+                        logger.info(f"ckpt_loss: {ckpt_loss}")
+                        ckpt_loss = current_loss
+
+                        args.unet_lr = args.unet_lr*1.1
+                        args.learning_rate = args.learning_rate*1.1
+                        logger.info(f"unet_lr: {args.unet_lr}")
+                        logger.info(f"learning_rate: {args.learning_rate}")
+
                         accelerator.wait_for_everyone()
                         if accelerator.is_main_process:
                             ckpt_name = train_util.get_step_ckpt_name(args, "." + args.save_model_as, global_step)
                             save_model(ckpt_name, accelerator.unwrap_model(network), global_step, epoch)
-                            accelerator.print("save_model sync_gradients")
+                            logger.info("save_model save_every_n_steps")
+
+                            ckpt_name = train_util.get_last_ckpt_name(args, "." + args.save_model_as)
+                            save_model(ckpt_name, network, global_step, num_train_epochs, force_sync_upload=True)
 
                             if args.save_state:
                                 train_util.save_and_remove_state_stepwise(args, accelerator, global_step)
@@ -1440,14 +1465,6 @@ class NetworkTrainer:
                                 remove_ckpt_name = train_util.get_step_ckpt_name(args, "." + args.save_model_as, remove_step_no)
                                 remove_model(remove_ckpt_name)
                     optimizer_train_fn()
-
-                current_loss = loss.detach().item()
-                loss_recorder.add(epoch=epoch, step=step, loss=current_loss)
-                avr_loss: float = loss_recorder.moving_average
-                logs = {"avr_loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
-                progress_bar.set_postfix(**logs)
-
-                current_loss = avr_loss
 
                 if args.scale_weight_norms:
                     progress_bar.set_postfix(**{**max_mean_logs, **logs})
@@ -1622,7 +1639,7 @@ class NetworkTrainer:
                 if is_main_process and saving:
                     ckpt_name = train_util.get_epoch_ckpt_name(args, "." + args.save_model_as, epoch + 1)
                     save_model(ckpt_name, accelerator.unwrap_model(network), global_step, epoch + 1)
-                    accelerator.print("save_model save_every_n_epochs")
+                    logger.info("\nsave_model save_every_n_epochs")
 
                     remove_epoch_no = train_util.get_remove_epoch_no(args, epoch + 1)
                     if remove_epoch_no is not None:
@@ -1650,9 +1667,13 @@ class NetworkTrainer:
             train_util.save_state_on_train_end(args, accelerator)
 
         if is_main_process and args.last_loss*1.1 >= current_loss:
+            logger.info("\n")
+            logger.info(f"current_loss: {current_loss}")
+            logger.info(f"last_loss: {args.last_loss}")
+
             ckpt_name = train_util.get_last_ckpt_name(args, "." + args.save_model_as)
             save_model(ckpt_name, network, global_step, num_train_epochs, force_sync_upload=True)
-            accelerator.print("save_model is_main_process")
+            logger.info("save_model is_main_process")
 
             logger.info("model saved.")
 
